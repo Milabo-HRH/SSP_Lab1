@@ -2,6 +2,7 @@ import os
 import traceback
 
 from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import requests
 import mysql.connector
@@ -16,16 +17,18 @@ create = "CREATE TABLE IF NOT EXISTS complaints( \
             `name` VARCHAR(40) ,\
             `address` VARCHAR(40) ,\
             `date` VARCHAR(40), \
-            `company` VARCHAR(40) NOT NULL, \
+            `company` VARCHAR(100) NOT NULL, \
             `text` TEXT NOT NULL,   \
             `res` CHAR(1),\
             `rep` CHAR(1),\
-            `imgSRC` VARCHAR(50), \
+            `imgSRC` VARCHAR(100), \
             PRIMARY KEY ( `id` )\
          )ENGINE=InnoDB DEFAULT CHARSET=utf8;"
 
 cur.execute(create)
 img_index = 0
+option = Options()
+option.add_argument("--headless")
 
 
 def scratch(t):
@@ -50,14 +53,18 @@ def scratch(t):
         if r.text == "Replied":
             rep = 'T'
     images = t.findAll('a', {'class': 'complaint-attachments__link'})
+    begin = img_index
+    fl = False
     for im in images:
+        fl = True
         src = site + im['href']
         proxies = {"http": None, "https": None}
         r = requests.get(src, proxies=proxies)
-        with open('./images/' + str(img_index) + '.' + src[src.rfind('.')+1:], mode='wb') as f:
+        with open('./images/' + str(img_index) + '.' + src[src.rfind('.') + 1:], mode='wb') as f:
             f.write(r.content)
-        imgSrc += str(img_index) + ' '
         img_index += 1
+    if fl:
+        imgSrc = str(begin) + ' ' + str(img_index)
     try:
         sql = "INSERT INTO complaints(`header`,`name`, `address`, `date`, `company`, `text`, `res`, `rep`, `imgSRC`)\
                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
@@ -72,24 +79,26 @@ def scratch(t):
 
 
 def link_handle(s):
-    brows = webdriver.Chrome()
-    brows.get(s)
-    soup_i = BeautifulSoup(brows.page_source, 'html.parser')
-    # print(soup_i)
-    n = soup_i.findAll('a', {'class': 'bn-complaints__pagination-item'})
-    if len(n) > 2:
-        n = int(n[-2].text)
-    else:
-        n = 1
-    temp = soup_i.findAll('div', {'class': 'complaint-list-block'})
-    for t in temp:
-        scratch(t)
-    brows.close()
-    return n
+    try:
+        brows = webdriver.Chrome(options=option)
+        brows.get(s)
+        soup_i = BeautifulSoup(brows.page_source, 'html.parser')
+        n = soup_i.findAll('a', {'class': 'bn-complaints__pagination-item'})
+        if len(n) > 2:
+            n = int(n[-2].text)
+        else:
+            n = 1
+        temp = soup_i.findAll('div', {'class': 'complaint-list-block'})
+        for t in temp:
+            scratch(t)
+        brows.close()
+        return n
+    except:
+        return link_handle(s)
 
 
-browser1 = webdriver.Chrome()
-browser1.get("https://www.complaintsboard.com/bycategory/business-finances")
+browser1 = webdriver.Chrome(options=option)
+browser1.get(site + "/bycategory/business-finances")
 soup = BeautifulSoup(browser1.page_source, 'html.parser')
 
 links = soup.findAll('a', {'class': 'block item-row bname-row'})
@@ -98,13 +107,9 @@ for i in range(len(links)):
 
 for i in range(len(links)):
     s = site + links[i]
-    # s = "https://www.complaintsboard.com/complete-savings-complete-save-b114616/page/61"
-    # print(s)
     n = link_handle(s)
     for j in range(2, n + 1):
         page = s + "/page/" + str(j)
         link_handle(page)
-# print(temp)
-# print(soup_i)
 
 browser1.close()
